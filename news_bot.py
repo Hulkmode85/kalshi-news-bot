@@ -45,6 +45,34 @@ def shadow_log(opportunity: dict, taken: bool, reason: str = ""):
             f.write(json.dumps(entry) + "\n")
     except:
         pass
+
+# ─── Regime Detection — pause trading during extreme volatility ────────────
+import statistics as _stats
+
+REGIME_WINDOW = int(os.getenv("REGIME_WINDOW", "20"))
+REGIME_THRESHOLD = float(os.getenv("REGIME_THRESHOLD", "3.0"))
+_regime_prices: list[float] = []
+
+def check_regime(price: float) -> str:
+    """Returns 'CALM', 'ELEVATED', or 'CRASH'. Skip trades during CRASH."""
+    _regime_prices.append(price)
+    if len(_regime_prices) > REGIME_WINDOW:
+        _regime_prices.pop(0)
+    if len(_regime_prices) < 5:
+        return "CALM"
+    rets = [(b - a) / a for a, b in zip(_regime_prices[:-1], _regime_prices[1:])]
+    if not rets:
+        return "CALM"
+    mu = _stats.mean(rets)
+    sd = _stats.stdev(rets) if len(rets) > 1 else 0.01
+    z = abs(rets[-1] - mu) / max(sd, 0.0001)
+    if z > REGIME_THRESHOLD:
+        return "CRASH"
+    elif z > REGIME_THRESHOLD * 0.6:
+        return "ELEVATED"
+    return "CALM"
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -400,6 +428,12 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
         if not allowed:
             log.info(f"[PAPER] Risk guard would block: {reason}")
 
+    # ── Regime detection ──
+    regime = check_regime(float(price_cents))
+    if regime == "CRASH":
+        log.warning("REGIME CRASH on kalshi_news_bot — skipping trade")
+        shadow_log({"bot": "kalshi_news_bot", "regime": regime}, taken=False, reason="crash regime")
+        return
     shadow_log({"bot": "news", "ticker": ticker, "side": side, "price": price_cents, "contracts": count, "tier": tier}, taken=True)
     if paper_mode:
         cost = count * price_dollars
