@@ -34,6 +34,17 @@ from dotenv import load_dotenv
 from risk_guard import RiskManager
 
 load_dotenv()
+
+# ── Shadow Logging ────────────────────────────────────────────────────────────
+SHADOW_LOG_FILE = os.getenv("SHADOW_LOG_FILE", "shadow_log.jsonl")
+
+def shadow_log(opportunity: dict, taken: bool, reason: str = ""):
+    entry = {"ts": time.time(), "taken": taken, "reason": reason, **opportunity}
+    try:
+        with open(SHADOW_LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except:
+        pass
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -368,6 +379,7 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
     ev_after_fees = (100 - price_cents) / 100.0 - Config.MAKER_FEE
     if ev_after_fees <= 0:
         log.info(f"Skipping {ticker}: negative EV after {Config.MAKER_FEE*100}% fee (price={price_cents}¢)")
+        shadow_log({"bot": "news", "ticker": ticker, "side": side, "price": price_cents, "tier": tier}, taken=False, reason="negative EV after fees")
         return
 
     # Kelly: 2% of balance per trade, capped at MAX_TRADE_USD
@@ -388,6 +400,7 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
         if not allowed:
             log.info(f"[PAPER] Risk guard would block: {reason}")
 
+    shadow_log({"bot": "news", "ticker": ticker, "side": side, "price": price_cents, "contracts": count, "tier": tier}, taken=True)
     if paper_mode:
         cost = count * price_dollars
         paper_balance[0] -= cost
