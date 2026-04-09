@@ -52,6 +52,7 @@ class Config:
     PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "5000.0"))
     MAX_TRADE_USD: float = float(os.environ.get("MAX_TRADE_USD", "50.0"))
     MIN_EDGE_PCT: float = float(os.environ.get("MIN_EDGE_PCT", "5.0"))  # min % edge vs current price
+    MAKER_FEE: float = float(os.environ.get("MAKER_FEE", "0.0175"))
     KELLY_FRACTION: float = float(os.environ.get("KELLY_FRACTION", "1.0"))
 
 
@@ -362,6 +363,12 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
         best_yes_bid = Decimal(yes_bids[-1][0])
         price_cents = int((Decimal("1.0") - best_yes_bid) * 100) + 1
         price_cents = min(99, price_cents)
+
+    # Fee-aware EV check: price must leave room for maker fee
+    ev_after_fees = (100 - price_cents) / 100.0 - Config.MAKER_FEE
+    if ev_after_fees <= 0:
+        log.info(f"Skipping {ticker}: negative EV after {Config.MAKER_FEE*100}% fee (price={price_cents}¢)")
+        return
 
     # Kelly: 2% of balance per trade, capped at MAX_TRADE_USD
     price_dollars = price_cents / 100.0
