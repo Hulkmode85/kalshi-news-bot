@@ -52,6 +52,7 @@ class Config:
     PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "5000.0"))
     MAX_TRADE_USD: float = float(os.environ.get("MAX_TRADE_USD", "50.0"))
     MIN_EDGE_PCT: float = float(os.environ.get("MIN_EDGE_PCT", "5.0"))  # min % edge vs current price
+    KELLY_FRACTION: float = float(os.environ.get("KELLY_FRACTION", "1.0"))
 
 
 # ─── News Feeds ───────────────────────────────────────────────────────────────
@@ -362,9 +363,10 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
         price_cents = int((Decimal("1.0") - best_yes_bid) * 100) + 1
         price_cents = min(99, price_cents)
 
-    # Size: use up to MAX_TRADE_USD, minimum 1 contract
+    # Kelly: 2% of balance per trade, capped at MAX_TRADE_USD
     price_dollars = price_cents / 100.0
-    count = max(1, int(Config.MAX_TRADE_USD / price_dollars))
+    kelly_bet = min(paper_balance[0] * 0.02 * Config.KELLY_FRACTION, Config.MAX_TRADE_USD)
+    count = max(1, int(kelly_bet / price_dollars))
     count = min(count, 200)
 
     # ── Risk Guard check ──
