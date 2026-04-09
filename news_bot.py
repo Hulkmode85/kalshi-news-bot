@@ -31,10 +31,14 @@ import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from dotenv import load_dotenv
+from risk_guard import RiskManager
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+# ── Risk Guard ────────────────────────────────────────────────────────────────
+risk_manager = RiskManager()
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 
@@ -362,6 +366,18 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
     price_dollars = price_cents / 100.0
     count = max(1, int(Config.MAX_TRADE_USD / price_dollars))
     count = min(count, 200)
+
+    # ── Risk Guard check ──
+    if not paper_mode:
+        allowed, reason, capped = risk_manager.pre_trade_check(ticker, price_cents, count, side, bot_name="news-bot")
+        if not allowed:
+            log.warning(f"Risk guard blocked: {reason}")
+            return
+        count = capped
+    else:
+        allowed, reason, capped = risk_manager.pre_trade_check(ticker, price_cents, count, side, bot_name="news-bot")
+        if not allowed:
+            log.info(f"[PAPER] Risk guard would block: {reason}")
 
     if paper_mode:
         cost = count * price_dollars
