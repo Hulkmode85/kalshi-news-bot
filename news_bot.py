@@ -15,6 +15,9 @@ import base64
 import json
 import logging
 import os
+import time
+from flask import Flask, jsonify
+import threading
 import re
 import uuid
 import xml.etree.ElementTree as ET
@@ -42,7 +45,7 @@ class Config:
     ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 
     PAPER_MODE: bool = os.environ.get("PAPER_MODE", "true").lower() == "true"
-    PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "1000.0"))
+    PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "5000.0"))
     MAX_TRADE_USD: float = float(os.environ.get("MAX_TRADE_USD", "50.0"))
     MIN_EDGE_PCT: float = float(os.environ.get("MIN_EDGE_PCT", "5.0"))  # min % edge vs current price
 
@@ -372,10 +375,33 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+# ── Stats HTTP server ─────────────────────────────────────────────────────────
+_stats_app = Flask(__name__)
+_bot_stats = {"trades": 0, "wins": 0, "pnl": 0.0, "balance": 0.0, "start": time.time()}
+
+@_stats_app.route("/stats")
+def _stats_endpoint():
+    t = _bot_stats
+    total = t["trades"]
+    return jsonify({"bot": "kalshi-news-bot", "paper_mode": True,
+        "balance": t["balance"], "trades": total, "wins": t["wins"],
+        "losses": total - t["wins"], "win_rate": round(t["wins"]/max(total,1), 4),
+        "pnl": t["pnl"], "uptime_hours": round((time.time()-t["start"])/3600, 2)})
+
+@_stats_app.route("/health")
+def _health_endpoint():
+    return jsonify({"status": "ok"})
+
+def _run_stats_server():
+    _stats_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+
 async def main():
     private_key = load_private_key(Config.KALSHI_PRIVATE_KEY_PEM)
     claude_client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
     paper_balance = [Config.PAPER_BALANCE]
+    _bot_stats["balance"] = paper_balance[0]
+    threading.Thread(target=_run_stats_server, daemon=True).start()
 
     log.info(f"=== News Event Bot | {'PAPER' if Config.PAPER_MODE else 'LIVE'} MODE | balance=${paper_balance[0]:.2f} ===")
 
@@ -413,6 +439,7 @@ async def main():
         async def status_logger():
             while True:
                 await asyncio.sleep(300)
+                _bot_stats["balance"] = paper_balance[0]
                 log.info(f"Status | queue={news_queue.qsize()} | seen={len(seen_guids)} | balance=${paper_balance[0]:.2f}")
 
         tasks.append(asyncio.create_task(status_logger()))
