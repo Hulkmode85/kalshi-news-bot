@@ -35,6 +35,27 @@ from risk_guard import RiskManager
 
 load_dotenv()
 
+# ── Quant Fund Shadow Evaluators ─────────────────────────────────────────
+try:
+    from bayesian_updater import BayesianUpdater
+    from ensemble_model import EnsembleModel
+    from time_decay_edge import calculate_time_weighted_edge
+    from correlation_matrix import CorrelationTracker
+    from vpin_toxicity import VPINTracker
+    from market_impact import estimate_market_impact
+    from feature_engine import FeatureEngine
+    from portfolio_optimizer import PortfolioOptimizer
+    _quant_modules_available = True
+    _bayesian = BayesianUpdater()
+    _ensemble = EnsembleModel()
+    _correlation = CorrelationTracker()
+    _vpin = VPINTracker()
+    _features = FeatureEngine()
+    _portfolio = PortfolioOptimizer()
+except ImportError:
+    _quant_modules_available = False
+
+
 # ── Shadow Logging ────────────────────────────────────────────────────────────
 SHADOW_LOG_FILE = os.getenv("SHADOW_LOG_FILE", "shadow_log.jsonl")
 
@@ -487,6 +508,15 @@ async def execute_trade(http: httpx.AsyncClient, private_key, key_id: str,
         log.info(f"Skipping {ticker}: negative EV after {Config.MAKER_FEE*100}% fee (price={price_cents}¢)")
         shadow_log({"bot": "news", "ticker": ticker, "side": side, "price": price_cents, "tier": tier}, taken=False, reason="negative EV after fees")
         evaluate_virtual_portfolios({"bot": "news", "ticker": ticker, "side": side, "price": price_cents, "tier": tier})
+        if _quant_modules_available:
+            try:
+                _features.extract({"price": locals().get("price", 0), "volume": locals().get("volume", 0), "bid": locals().get("bid", 0), "ask": locals().get("ask", 0)})
+                _bayesian.update(locals().get("market_id", locals().get("ticker", "unknown")), locals().get("price", 0), time.time())
+                _td_edge = calculate_time_weighted_edge(locals().get("edge", 0), locals().get("minutes_remaining", locals().get("time_remaining", 15)), 15)
+                _vpin.update(locals().get("price", 0), locals().get("volume", 0))
+                _mi = estimate_market_impact(locals().get("contracts", 1), locals().get("volume", 100))
+            except:
+                pass
         return
 
     # Kelly: 2% of balance per trade, capped at MAX_TRADE_USD
