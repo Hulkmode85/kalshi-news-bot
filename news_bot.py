@@ -98,7 +98,7 @@ def check_circuit_breaker() -> bool:
     if _consecutive_losses >= CONSECUTIVE_LOSS_PAUSE:
         return True
     # Use PAPER_BALANCE if available, else 5000
-    _balance = globals().get("PAPER_BALANCE", 5000)
+    _balance = globals().get("PAPER_BALANCE", 2000)
     if _daily_pnl < -DAILY_DRAWDOWN_PAUSE_PCT * _balance:
         return True
     return False
@@ -126,11 +126,11 @@ class Config:
     ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 
     PAPER_MODE: bool = os.environ.get("PAPER_MODE", "true").lower() == "true"
-    PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "5000.0"))
+    PAPER_BALANCE: float = float(os.environ.get("PAPER_STARTING_BALANCE", "2000.0"))
     MAX_TRADE_USD: float = float(os.environ.get("MAX_TRADE_USD", "50.0"))
-    MIN_EDGE_PCT: float = float(os.environ.get("MIN_EDGE_PCT", "5.0"))  # min % edge vs current price
+    MIN_EDGE_PCT: float = float(os.environ.get("MIN_EDGE_PCT", "0.05"))  # min % edge vs current price
     MAKER_FEE: float = float(os.environ.get("MAKER_FEE", "0.0175"))
-    KELLY_FRACTION: float = float(os.environ.get("KELLY_FRACTION", "1.0"))
+    KELLY_FRACTION: float = float(os.environ.get("KELLY_FRACTION", "0.25"))
 
 
 # ─── News Feeds ───────────────────────────────────────────────────────────────
